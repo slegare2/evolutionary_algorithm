@@ -648,9 +648,14 @@ class MutateRule:
     def build_new_file(self):
         """ Build the Kappa file containing the new mutated rules. """
 
-        self.new_file = ""
+        if "/" in self.kappa_file:
+            slash = self.kappa_file.rfind("/")
+            father = self.kappa_file[slash+1:]
+        else:
+            father = self.kappa_file
+        self.new_file = "// Father: {} \n".format(father)
         self.mutated_lines = []
-        for i in range(len(self.kappa_obj)):
+        for i in range(1, len(self.kappa_obj)):
             line = self.kappa_obj[i]
             if i == self.random_line:
                 self.mutated_lines.append(i)
@@ -978,8 +983,18 @@ class MutateRate:
     def build_new_file(self):
         """ Build the Kappa file containing the new changed rates. """
 
-        self.new_file = ""
-        for i in range(len(self.kappa_obj)):
+        if self.allrates == False:
+            if "/" in self.kappa_file:
+                slash = self.kappa_file.rfind("/")
+                father = self.kappa_file[slash+1:]
+            else:
+                father = self.kappa_file
+            self.new_file = "// Father: {} \n".format(father)
+            first_line = 1
+        elif self.allrates == True:
+            self.new_file = ""
+            first_line = 0
+        for i in range(first_line, len(self.kappa_obj)):
             line = self.kappa_obj[i]
             if i >= self.bind_start and i <= self.bind_end:
                 j = i - self.bind_start

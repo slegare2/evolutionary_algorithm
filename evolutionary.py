@@ -17,7 +17,7 @@ class Evolutionary:
                  selection_type, elite_frac, penalty_weight,
                  mutation_prob, refine_prob, max_bonds,
                  binary_rates, unary_rates,
-                 start_dir, pop_dir, next_dir, out_dir, fit_dir,
+                 start_dir, pop_dir, next_dir, past_dir, out_dir, fit_dir,
                  best_dir, story_dir, matrix_file):
         """ Initialize Evolutionary class. """
 
@@ -35,6 +35,7 @@ class Evolutionary:
         self.start_dir = start_dir
         self.pop_dir = pop_dir
         self.next_dir = next_dir
+        self.past_dir = past_dir
         self.out_dir = out_dir
         self.fit_dir = fit_dir
         self.best_dir = best_dir
@@ -480,11 +481,15 @@ class Evolutionary:
     def replace_population(self):
         """ Replace current generation with next generation. """
 
-        # Remove previous models and time series.
+        # Move previous models to past_dir.
         for model in self.model_list:
-            file_path = "{}/{}.ka".format(self.pop_dir, model)
-            #print("removing file {}".format(file_path))
-            os.remove(file_path)
+            from_path = "{}/{}.ka".format(self.pop_dir, model)
+            dash = model.rfind("-")
+            num = model[dash+1:]
+            to_path = "{}/gen_{}-{}.ka".format(self.past_dir,
+                                               self.generation, num)
+            #print("moving file {} to {}".format(from_path, to_path))
+            shutil.move(from_path, to_path)
         # Copy next generation models into current generation.
         self.next_list = self.get_files(self.next_dir)
         for model in self.next_list:
