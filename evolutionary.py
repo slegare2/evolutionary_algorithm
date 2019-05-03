@@ -14,11 +14,12 @@ class Evolutionary:
     """ Evolutionary algorithm. """
 
     def __init__(self, num_gens, sim_time, out_period,
-                 selection_type, elite_frac, penalty_weight,
+                 selection_type, elite_frac,
+                 penalty_weight, time_ave_frac,
                  mutation_prob, refine_prob, max_bonds,
                  binary_rates, unary_rates,
-                 start_dir, pop_dir, next_dir, past_dir, out_dir, fit_dir,
-                 best_dir, story_dir, matrix_file):
+                 start_dir, pop_dir, next_dir, past_dir, out_dir,
+                 fit_dir, best_dir, story_dir, matrix_file):
         """ Initialize Evolutionary class. """
 
         self.num_gens = num_gens
@@ -27,6 +28,7 @@ class Evolutionary:
         self.selection_type = selection_type
         self.elite_frac = elite_frac
         self.penalty_weight = penalty_weight
+        self.time_ave_frac = time_ave_frac
         self.mutation_prob = mutation_prob
         self.refine_prob = refine_prob
         self.max_bonds = max_bonds
@@ -270,7 +272,7 @@ class Evolutionary:
             time_series = open(input_path, "r").readlines()
             n_plot = len(time_series)
             n_entries = n_plot - 1
-            n_read = int(n_entries*0.1)
+            n_read = int(n_entries * self.time_ave_frac)
             read_start = n_plot - n_read
             obs_averages = []
             for i in range(1, self.num_obs+1):
@@ -418,7 +420,8 @@ class Evolutionary:
                     mut_lines = mutated_model_tmp.mutated_lines
                     mutated_model = MutateRate(tmp_out, self.binary_rates,
                                                self.unary_rates,
-                                               select_lines=mut_lines)
+                                               select_lines=mut_lines,
+                                               unchanged_father=True)
                 else: # Change a rate.
                     mutated_model = MutateRate(input_path, self.binary_rates,
                                                self.unary_rates)

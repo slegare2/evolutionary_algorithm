@@ -19,9 +19,9 @@ class RuleAncestry:
         self.rule_id = rule_id
         self.past_dir = past_dir
         self.ance_dir = ance_dir
-        self.kappa_obj = open(self.kappa_path, "r").readlines()
+        self.kappa_model = open(self.kappa_path, "r").readlines()
         # Run class methods.
-        self.find_initial_rule()
+        self.check_rule()
         self.copy_target_file()
         self.create_outfile()
         self.get_past_models()
@@ -31,14 +31,13 @@ class RuleAncestry:
 
     # ------------- Initialize Section ---------------
 
-    def find_initial_rule(self):
+    def check_rule(self):
         """ Search for rule_id in the model_file. """
 
-        self.current_model = self.kappa_obj
-        self.find_binding_rules()
+        self.find_binding_rules(self.kappa_model)
         rule_found = False
         for i in range(self.bind_start, self.bind_end+1):
-            line_str = self.kappa_obj[i][1:]
+            line_str = self.kappa_model[i][1:]
             quote = line_str.index("'")
             rule_name = line_str[:quote]
             if rule_name == self.rule_id:
@@ -50,13 +49,13 @@ class RuleAncestry:
                             .format(self.rule_id, self.kappa_path))
 
 
-    def find_binding_rules(self):
+    def find_binding_rules(self, model_file):
         """ Read input Kappa file and find the range of the binding rules. """
 
         self.bind_start = 0
         self.bind_end = 0
-        for i in range(len(self.current_model)):
-            line = self.kappa_obj[i]
+        for i in range(len(model_file)):
+            line = model_file[i]
             if "// Binary binding rules." in line:
                 self.bind_start = i + 1
             if "// Unary binding rules." in line:
@@ -99,77 +98,94 @@ class RuleAncestry:
     def track_ancestors(self):
         """ Track mutations in the past of given rule from given model. """
 
-        self.root_reached = False
-        self.previous_model = self.kappa_obj
-        self.current_model = self.kappa_obj
-        while self.root_reached == False:
-            self.find_target_rule()
-            if self.mutation_found == True:
-
-            self.previous_model = self.current_model 
-            self.fetch_father()
-            if self.father_id == 0:
-                self.root_reached = True
-
-
-    def find_target_rule(self):
-        """
-        Find target rule in model file. If the rule is not found, it has been
-        mutated and its precedent form should be found instead.
-        """
-
-        self.find_binding_rules()
-        self.rule_found = False
-        self.mutation_found = False
-        for i in range(self.bind_start, self.bind_end+1):
-            line_str = self.current_model[i][1:]
-            quote = line_str.index("'")
-            rule_name = line_str[:quote]
-            if rule_name == self.rule_id:
-                self.rule_line = i
-                self.rule_found = True
-                break
-        if rule_found == False:
-            self.rule_id = self.rule_id[:-1]
-        for i in range(self.bind_start, self.bind_end+1):
-            line_str = self.current_model[i][1:]
-            quote = line_str.index("'")
-            rule_name = line_str[:quote]
-            if rule_name == self.rule_id:
-                self.rule_line = i
-                self.mutation_found = True
-                break
+        root_reached = False
+        current_file = self.kappa_path
+        current_rule = self.rule_id
+        self.out_str = "{}\n".format(self.kappa_file)
+        while root_reached == False:
+            current_model = open(current_file, "r").readlines()
+            current_rule, current_line = self.find_target_rule(current_rule,
+                                                               current_model)
+            next_file, father_id = self.find_father(current_model)
+            next_model = open(next_file, "r").readlines()
+            next_rule, next_line = self.find_target_rule(current_rule,
+                                                         next_model)
+            if next_rule != current_rule: # A mutation was found.        
+                self.out_str += "|\n"
+                slash = current_file.rfind("/")
+                self.out_str += "{:20} ".format(current_file[slash+1:])
+                self.out_str += "{}".format(current_model[current_line])
+                slash = next_file.rfind("/")
+                self.out_str += "{:20} ".format(next_file[slash+1:])
+                self.out_str += "{}".format(next_model[next_line])
+            else:
+                pass
+            current_file = next_file
+            if father_id == 0:
+                root_reached = True
+        self.output_file.write("{}".format(self.out_str))
 
 
-    def fetch_father(self):
+    def find_father(self, model_file):
         """
         Get the father model from directory past_dir. If the model was
         preserved for many generations, take the file from the first
         generation where it appeared.
         """
 
-        self.get_father_id()
-        father_list = []
-        for past_model in self.past_list:
-            if past_model[1] == self.father_id:
-                father_list.append(past_model)
-        sorted_list = sorted(father_list, key=lambda x: x[0])
-        self.father_file = ("gen_{}-{}.ka".format(sorted_list[0][0],
-                                                  sorted_list[0][1]))
-        self.father_path = "{}/{}".format(self.past_dir, self.father_file)
-        self.current_model = open(self.father_path, "r").readlines()
-
-
-    def get_father_id(self):
-        """ Read the father id from the model. """
-
-        tokens = self.kappa_obj[0].split()
+        tokens = model_file[0].split()
         father = tokens[-1]
         if "-" in father:
             dash = father.index("-")
-            self.father_id = int(father[dash+1:-3])
+            father_id = int(father[dash+1:-3])
         else:
-            self.father_id = 0
+            father_id = 0
+        father_list = []
+        for past_model in self.past_list:
+            if past_model[1] == father_id:
+                father_list.append(past_model)
+        sorted_list = sorted(father_list, key=lambda x: x[0])
+        father_gen = sorted_list[0][0]
+        father_file = "gen_{}-{}.ka".format(father_gen, father_id)
+        father_path = "{}/{}".format(self.past_dir, father_file)
+
+        return father_path, father_id
+
+
+    def find_target_rule(self, rule, model_file):
+        """
+        Find target rule in model file. If the rule is not found, it has been
+        mutated and its precedent form should be found instead.
+        """
+
+        self.find_binding_rules(model_file)
+        rule_found = False
+        for i in range(self.bind_start, self.bind_end+1):
+            line_str = model_file[i][1:]
+            quote = line_str.index("'")
+            rule_name = line_str[:quote]
+            if rule_name == rule:
+                rule_line = i
+                rule_found = True
+                break
+        if rule_found == False:
+            prev_rule = rule[:-1]
+            mutation_found = True
+            for i in range(self.bind_start, self.bind_end+1):
+                line_str = model_file[i][1:]
+                quote = line_str.index("'")
+                rule_name = line_str[:quote]
+                if rule_name == prev_rule:
+                    rule_line = i
+                    mutation_found = True
+                    break
+            if mutation_found == False:
+                raise Exception("Could not find rule {} or {}."
+                               .format(rule, prev_rule))
+            else:
+                rule = prev_rule
+
+        return rule, rule_line
 
 
 class ModelAncestry:

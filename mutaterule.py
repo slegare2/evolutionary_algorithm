@@ -719,7 +719,7 @@ class MutateRate:
     """
 
     def __init__(self, kappa_file, binary_rates, unary_rates,
-                 select_lines=None, allrates=False):
+                 select_lines=None, allrates=False, unchanged_father=False):
         """ Initialize MutateRate class. """
 
         #                  zero  slow     normal  fast
@@ -729,6 +729,7 @@ class MutateRate:
         self.kappa_file = kappa_file
         self.select_lines = select_lines # Should be a list.
         self.allrates = allrates
+        self.unchanged_father = unchanged_father
         self.kappa_obj = open(self.kappa_file, "r").readlines()
         # Run class methods.
         self.change_rates()
@@ -983,7 +984,7 @@ class MutateRate:
     def build_new_file(self):
         """ Build the Kappa file containing the new changed rates. """
 
-        if self.allrates == False:
+        if self.unchanged_father == False:
             if "/" in self.kappa_file:
                 slash = self.kappa_file.rfind("/")
                 father = self.kappa_file[slash+1:]
@@ -991,7 +992,7 @@ class MutateRate:
                 father = self.kappa_file
             self.new_file = "// Father: {} \n".format(father)
             first_line = 1
-        elif self.allrates == True:
+        elif self.unchanged_father == True:
             self.new_file = ""
             first_line = 0
         for i in range(first_line, len(self.kappa_obj)):
