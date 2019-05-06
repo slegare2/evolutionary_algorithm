@@ -161,7 +161,7 @@ class Evolutionary:
         for i in range(n-1, -1, -1):
             entry = time_series[i]
             for value in entry:
-                output_file.write("{:6.1f}   ".format(value))
+                output_file.write("{:10.4f}   ".format(value))
             output_file.write("\n")
 
     # ============= Simulation Section End ================
@@ -291,8 +291,24 @@ class Evolutionary:
     def rank_models(self):
         """ Rank each simulated model based on fitness. """
 
-        self.ranked_models = sorted(self.fitness, key=lambda x: x[-1],
+        ranked_tmp = sorted(self.fitness, key=lambda x: x[-1],
                                     reverse=True)
+        # Shuffle models with same fitness.
+        group_list = [ [ranked_tmp[0]] ]
+        group_index = 0
+        for i in range(1, len(ranked_tmp)):
+            prev_fit = ranked_tmp[i-1][1]
+            curr_fit = ranked_tmp[i][1]
+            if curr_fit == prev_fit:
+                group_list[group_index].append(ranked_tmp[i])
+            else:
+                group_list.append([ranked_tmp[i]])
+                group_index += 1
+        self.ranked_models = []
+        for group in group_list:
+            random.shuffle(group)
+            for model in group:
+                self.ranked_models.append(model)
 
 
     def write_fitness(self):
