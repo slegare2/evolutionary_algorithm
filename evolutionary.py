@@ -6,6 +6,7 @@ import os
 import time
 import shutil
 import random
+import string
 import kappy
 from mutaterule import MutateRule, MutateRate
 
@@ -13,7 +14,7 @@ from mutaterule import MutateRule, MutateRate
 class Evolutionary:
     """ Evolutionary algorithm. """
 
-    def __init__(self, num_gens, sim_time, out_period,
+    def __init__(self, num_gens, sim_time, replicates, out_period,
                  selection_type, elite_frac,
                  penalty_weight, time_ave_frac,
                  mutation_prob, refine_prob, max_bonds,
@@ -24,6 +25,7 @@ class Evolutionary:
 
         self.num_gens = num_gens
         self.sim_time = sim_time
+        self.replicates = replicates
         self.out_period = float(out_period)
         self.selection_type = selection_type
         self.elite_frac = elite_frac
@@ -43,6 +45,7 @@ class Evolutionary:
         self.best_dir = best_dir
         self.story_dir = story_dir
         self.matrix_file = matrix_file
+        self.letters = list(string.ascii_lowercase)
         # Some checks.
         if self.selection_type != "fit" and self.selection_type != "rank":
             raise Exception("Parameter selection_type should be either "
@@ -100,7 +103,11 @@ class Evolutionary:
             dash = f.rfind("-")
             dot = f.rfind(".")
             name = f[:dot]
-            number = int(f[dash+1:dot])
+            extension = f[dot+1:]
+            if extension == "dat" and self.replicates > 1:
+                number = int(f[dash+1:dot-1])
+            else:
+                number = int(f[dash+1:dot])
             file_dicts.append({"file": name, "num": number})
         sorted_dicts = sorted(file_dicts, key=lambda x: x["num"])
         file_list = []
@@ -117,19 +124,27 @@ class Evolutionary:
         for model in self.model_list:
             input_path = "{}/{}.ka".format(self.pop_dir, model)
             kappa_file = open(input_path, "r").read()
-            print("Running simulation on {}.".format(input_path))
-            client = kappy.KappaStd()
-            client.add_model_string(kappa_file)
-            client.project_parse()
-            sim_params = kappy.SimulationParameter(
-                pause_condition="[T] > {}".format(self.sim_time),
-                plot_period=self.out_period)
-            client.simulation_start(sim_params)
-            while client.get_is_sim_running(): time.sleep(0.1)
-            results = client.simulation_plot()
-            # Write simulation results to output file.
-            self.write_output(model, results)
-            client.shutdown()
+            for sim_num in range(self.replicates):
+                if self.replicates > 1:
+                    letter_id = self.letters[sim_num]
+                    replicate = "{}{}".format(model, letter_id)
+                    print("Running simulation {} on {}.".format(sim_num+1,
+                                                                input_path))
+                else:
+                    replicate = model
+                    print("Running simulation on {}.".format(input_path))
+                client = kappy.KappaStd()
+                client.add_model_string(kappa_file)
+                client.project_parse()
+                sim_params = kappy.SimulationParameter(
+                    pause_condition="[T] > {}".format(self.sim_time),
+                    plot_period=self.out_period)
+                client.simulation_start(sim_params)
+                while client.get_is_sim_running(): time.sleep(0.1)
+                results = client.simulation_plot()
+                # Write simulation results to output file.
+                self.write_output(replicate, results)
+                client.shutdown()
 
 
     def clear_previous(self):
@@ -268,47 +283,64 @@ class Evolutionary:
         
         self.time_averages = {}
         for model in self.model_list:
-            input_path = "{}/{}.dat".format(self.out_dir, model)
-            time_series = open(input_path, "r").readlines()
-            n_plot = len(time_series)
-            n_entries = n_plot - 1
-            n_read = int(n_entries * self.time_ave_frac)
-            read_start = n_plot - n_read
-            obs_averages = []
-            for i in range(1, self.num_obs+1):
-                summ = 0.0
-                for j in range(read_start, n_plot):
-                    tokens = time_series[j].split()
-                    summ += float(tokens[i])
-                if n_read != 0:
-                    ave = summ / n_read
+            replicate_averages = []
+            # Compute observable averages of each simulation.
+            for sim_num in range(self.replicates):
+                if self.replicates > 1:
+                    letter_id = self.letters[sim_num]
+                    replicate = "{}{}".format(model, letter_id)
                 else:
-                    ave = 0
-                obs_averages.append(ave)
-            self.time_averages[model] = obs_averages
+                    replicate = model
+                input_path = "{}/{}.dat".format(self.out_dir, replicate)
+                time_series = open(input_path, "r").readlines()
+                n_plot = len(time_series)
+                n_entries = n_plot - 1
+                n_read = int(n_entries * self.time_ave_frac)
+                read_start = n_plot - n_read
+                obs_averages = []
+                for i in range(1, self.num_obs+1):
+                    summ = 0.0
+                    for j in range(read_start, n_plot):
+                        tokens = time_series[j].split()
+                        summ += float(tokens[i])
+                    if n_read != 0:
+                        ave = summ / n_read
+                    else:
+                        ave = 0
+                    obs_averages.append(ave)
+                replicate_averages.append(obs_averages)
+            # Compute the global averages.
+            glob_averages = []
+            for i in range(self.num_obs):
+                summ = 0.0
+                for replica in replicate_averages:
+                    summ += replica[i]
+                ave = summ / self.replicates
+                glob_averages.append(ave)
+            self.time_averages[model] = glob_averages
 
 
     def rank_models(self):
         """ Rank each simulated model based on fitness. """
 
-        ranked_tmp = sorted(self.fitness, key=lambda x: x[-1],
+        self.ranked_models = sorted(self.fitness, key=lambda x: x[-1],
                                     reverse=True)
         # Shuffle models with same fitness.
-        group_list = [ [ranked_tmp[0]] ]
+        group_list = [ [self.ranked_models[0]] ]
         group_index = 0
-        for i in range(1, len(ranked_tmp)):
-            prev_fit = ranked_tmp[i-1][1]
-            curr_fit = ranked_tmp[i][1]
+        for i in range(1, len(self.ranked_models)):
+            prev_fit = self.ranked_models[i-1][-1]
+            curr_fit = self.ranked_models[i][-1]
             if curr_fit == prev_fit:
-                group_list[group_index].append(ranked_tmp[i])
+                group_list[group_index].append(self.ranked_models[i])
             else:
-                group_list.append([ranked_tmp[i]])
+                group_list.append([self.ranked_models[i]])
                 group_index += 1
-        self.ranked_models = []
+        self.shuffled_models = []
         for group in group_list:
             random.shuffle(group)
             for model in group:
-                self.ranked_models.append(model)
+                self.shuffled_models.append(model)
 
 
     def write_fitness(self):
@@ -363,7 +395,7 @@ class Evolutionary:
         """
 
         for i in range(self.n_elite):
-            model = self.ranked_models[i][0]
+            model = self.shuffled_models[i][0]
             input_path = "{}/{}.ka".format(self.pop_dir, model)
             output_path = "{}/{}.ka".format(self.next_dir, model)
             shutil.copyfile(input_path, output_path)
@@ -490,11 +522,11 @@ class Evolutionary:
                                                 self.generation,
                                                 model_number)
         shutil.copyfile(input_path, output_path)
-        input_data_path = "{}/{}.dat".format(self.out_dir, best_model)
-        output_data_path = "{}/best_ori_{}-{}.dat".format(self.best_dir,
-                                                      self.generation,
-                                                      model_number)
-        shutil.copyfile(input_data_path, output_data_path)
+        #input_data_path = "{}/{}.dat".format(self.out_dir, best_model)
+        #output_data_path = "{}/best_ori_{}-{}.dat".format(self.best_dir,
+        #                                              self.generation,
+        #                                              model_number)
+        #shutil.copyfile(input_data_path, output_data_path)
 
 
     def replace_population(self):
