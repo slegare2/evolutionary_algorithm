@@ -62,6 +62,7 @@ class Evolutionary:
         while self.generation < self.num_gens:
             self.generation += 1
             self.model_list = self.get_files(self.pop_dir)
+            self.check_survivors()
             self.simulation()
             self.compute_fitness()
             self.selection()
@@ -115,24 +116,64 @@ class Evolutionary:
             file_list.append(d["file"])
         return file_list
 
+
+    def check_survivors(self):
+        """
+        Get the list of models that survived unmutated (elites) from
+        the previous generation.
+        """
+
+        self.survivors = []
+        self.survivors_fit = []
+        self.surv_num_rules = {}
+        self.surv_time_averages = {}
+        if self.generation > 1:
+            file_path = "{}/fitness_gen-{}.txt".format(self.fit_dir,
+                                                       self.generation-1)
+            fitness_file = open(file_path).readlines()
+            for i in range(2, len(fitness_file)):
+                tokens = fitness_file[i].split()
+                if tokens[0] in self.model_list:
+                    surv_model = tokens[0]
+                    surv_score = float(tokens[-3])
+                    surv_pen = float(tokens[-2])
+                    surv_fit = float(tokens[-1])
+                    self.survivors.append(surv_model)
+                    self.survivors_fit.append([surv_model, surv_score,
+                                               surv_pen, surv_fit])
+                    self.surv_num_rules[surv_model] = int(tokens[1])
+                    obs_list = []
+                    for i in range(2, len(tokens)-3):
+                        obs_list.append(float(tokens[i]))
+                    self.surv_time_averages[surv_model] = obs_list
+        self.new_model_list = []
+        for model in self.model_list:
+            if model not in self.survivors:
+                self.new_model_list.append(model)
+
     # ============== Simulation Section ===================
 
     def simulation(self):
         """ Run a KaSim simulation on each model found in pop_dir.  """
 
         self.clear_previous()
-        for model in self.model_list:
+        for surv in self.survivors:
+            input_path = "{}/{}.ka".format(self.pop_dir, surv)
+            print("Skipping {} which was already simulated."
+                  .format(input_path))
+        for model in self.new_model_list:
             input_path = "{}/{}.ka".format(self.pop_dir, model)
             kappa_file = open(input_path, "r").read()
             for sim_num in range(self.replicates):
                 if self.replicates > 1:
                     letter_id = self.letters[sim_num]
                     replicate = "{}{}".format(model, letter_id)
-                    print("Running simulation {} on {}.".format(sim_num+1,
-                                                                input_path))
+                    print("Running simulation {} on {}."
+                          .format(sim_num+1, input_path))
                 else:
                     replicate = model
-                    print("Running simulation on {}.".format(input_path))
+                    print("Running simulation on {}."
+                          .format(input_path))
                 client = kappy.KappaStd()
                 client.add_model_string(kappa_file)
                 client.project_parse()
@@ -189,8 +230,8 @@ class Evolutionary:
         self.get_obs_weights()
         self.get_num_rules()
         self.compute_time_averages()
-        self.fitness = []
-        for model in self.model_list:
+        self.fitness = self.survivors_fit.copy()
+        for model in self.new_model_list:
             # Compute score.
             score = 0
             for i in range(self.num_obs):
@@ -237,8 +278,8 @@ class Evolutionary:
     def get_num_rules(self):
         """ Get the number of rules for all models. """
 
-        self.num_rules = {}
-        for model in self.model_list:
+        self.num_rules = self.surv_num_rules.copy()
+        for model in self.new_model_list:
             input_path = "{}/{}.ka".format(self.pop_dir, model)
             kappa_file = open(input_path, "r").readlines()
             n_rules = 0
@@ -281,8 +322,8 @@ class Evolutionary:
         for each simulation.
         """
         
-        self.time_averages = {}
-        for model in self.model_list:
+        self.time_averages = self.surv_time_averages.copy()
+        for model in self.new_model_list:
             replicate_averages = []
             # Compute observable averages of each simulation.
             for sim_num in range(self.replicates):
