@@ -663,20 +663,22 @@ class MutateRule:
                 self.new_file += "{}\n".format(self.rule_free)
                 self.new_file += "{}\n".format(self.rule_bound)
                 mut_line = i+1
+                added_lines = 1
                 for ring_rule in self.rules_ring:
                     mut_line += 1
+                    added_lines += 1
                     self.mutated_lines.append(mut_line)
                     self.new_file += "{}\n".format(ring_rule)
             elif i == self.unary_line:
-                self.mutated_lines.append(i)
-                self.mutated_lines.append(i+1)
+                self.mutated_lines.append(i+added_lines)
+                self.mutated_lines.append(i+added_lines+1)
                 if self.unary_commented == True:
                     self.new_file += "//"
                 self.new_file += "{}\n".format(self.uni_free)
                 if self.unary_commented == True:
                     self.new_file += "//"
                 self.new_file += "{}\n".format(self.uni_bound)
-                mut_line = i+1
+                mut_line = i+added_lines+1
                 for uni_ring_rule in self.uni_rules_ring:
                     mut_line += 1
                     self.mutated_lines.append(mut_line)
