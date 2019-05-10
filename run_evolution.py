@@ -11,6 +11,7 @@ from mutaterule import MutateRule, MutateRate
 # Simulation length params.
 num_gens   = 100   # Number of generations to simulate.
 sim_time   = 10    # Simulation time of each simulation.
+replicates = 1     # Number of replicates of each model to run.
 out_period = 0.01  # Time period between writings in the cvs output file.
                    # Should be smaller or equal to time_ave_frac/sim_time such
                    # that enough points are used to compute average amounts.
@@ -54,7 +55,7 @@ matrix_file = "../inter_matrix_full6.txt"
 
 # ---------- Run Evolutionary Algorithm ----------
 
-evolution = Evolutionary(num_gens, sim_time, out_period,
+evolution = Evolutionary(num_gens, sim_time, replicates, out_period,
                          selection_type, elite_frac,
                          penalty_weight, time_ave_frac,
                          mutation_prob, refine_prob, max_bonds,
