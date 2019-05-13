@@ -25,6 +25,8 @@ class Ancestry:
         self.mutations = {}
         self.fitness_diffs = {}
         self.fathers = {}
+        self.sons = {}
+        self.num_rules = {}
         # Run class methods.
         self.compute_ancestry()
         self.draw_ancestry()
@@ -35,16 +37,15 @@ class Ancestry:
 
         fitness_files = self.get_files(self.fit_dir)
         self.last_gen = len(fitness_files)
+        self.get_node_zero()
         for gen in range(1, self.last_gen+1):
             self.models_fitness = {}
             self.add_nodes(gen)
-            if gen > 1:
-                self.add_survivor_edges(gen)
-                self.add_mutation_edges(gen)
+            self.add_survivor_edges(gen)
+            self.add_mutation_edges(gen)
         best_num = self.find_best()
         self.list_parents([best_num])
-        #for entry in self.mutations.keys():
-        #    print(entry, "\n",self.mutations[entry])
+        self.center_alpha_models()
 
 
     def get_files(self, directory):
@@ -68,6 +69,23 @@ class Ancestry:
         return file_list
 
 
+    def get_node_zero(self):
+        """ Find the fitness of model 0."""
+
+        input_path = "{}/fitness_gen-1.txt".format(self.fit_dir)
+        input_file = open(input_path).readlines()
+        for i in range(2, len(input_file)):
+            tokens = input_file[i].split()
+            model = tokens[0]
+            dash = model.index("-")
+            model_num = model[dash+1:]
+            if model_num == "0":
+                fitness_zero = float(tokens[-1])
+                nrules_zero = tokens[1]
+                self.nodes.append([[model, nrules_zero, fitness_zero]])
+                break
+
+
     def add_nodes(self, generation):
         """ Get the nodes (the models) of a given generation. """
 
@@ -78,45 +96,27 @@ class Ancestry:
         for i in range(2, len(input_file)):
             tokens = input_file[i].split()
             model = tokens[0]
+            nrules = tokens[1]
             fitness = float(tokens[-1])
             if fitness < self.min_fitness:
                 self.min_fitness = fitness
             if fitness > self.max_fitness:
                 self.max_fitness = fitness
-            rank_nodes.append([model, fitness])
+            rank_nodes.append([model, nrules, fitness])
             self.current_models.append(model)
             self.models_fitness[model] = fitness
-        centered_nodes = self.center_best_models(rank_nodes, generation)
-        self.nodes.append(centered_nodes)
-
-
-    def center_best_models(self, node_list, generation):
-        """
-        Put the highest fitness models at the center of the list instead of
-        the beginning. This is to avoid skewing of the dot graph to the left.
-        """
-
-        centered_list = [node_list[0]]
-        for i in range(1, len(node_list)):
-            if generation%2 == 0:
-                if i%2 != 0:
-                    centered_list.append(node_list[i])
-                else:
-                    centered_list.insert(0, node_list[i])
-            else:
-                if i%2 != 0:
-                    centered_list.insert(0, node_list[i])
-                else:
-                    centered_list.append(node_list[i])
-
-        return centered_list
+        self.nodes.append(rank_nodes)
 
 
     def add_survivor_edges(self, generation):
         """ Get the edges (the mutations) of a given generation. """
 
-        input_path = "{}/fitness_gen-{}.txt".format(self.fit_dir, generation-1)
-        input_file = open(input_path).readlines()
+        if generation == 1:
+            input_file = ["", "", "abc-0 0.0"]
+        else:
+            input_path = ("{}/fitness_gen-{}.txt"
+                          .format(self.fit_dir, generation-1))
+            input_file = open(input_path).readlines()
         self.survivors = []
         self.rank_edges = []
         for i in range(2, len(input_file)):
@@ -129,6 +129,11 @@ class Ancestry:
                 model_num = prev_model[dash+1:]
                 node_id = "node_{}_{}".format(generation, model_num)
                 self.mutations[node_id] = "Clone"
+                prev_id = "node_{}_{}".format(generation-1, model_num)
+                if prev_id not in self.sons.keys():
+                    self.sons[prev_id] = [prev_model]
+                else:
+                    self.sons[prev_id].append(prev_model)
             else:
                 fitness = float(tokens[-1])
                 self.models_fitness[prev_model] = fitness
@@ -159,6 +164,13 @@ class Ancestry:
                 self.retrace_mutation(father, model_path, curr_id, generation)
                 self.fitness_diffs[curr_id] = fitness_diff
                 self.fathers[curr_id] = [father, prev_fitness]
+                father_dash = father.rfind("-")
+                father_num = int(father[dash+1:])
+                prev_id = "node_{}_{}".format(generation-1, father_num)
+                if prev_id not in self.sons.keys():
+                    self.sons[prev_id] = [model]
+                else:
+                    self.sons[prev_id].append(model)
         self.edges.append(self.rank_edges)
 
 
@@ -168,15 +180,19 @@ class Ancestry:
         mutation_str = ""
         dash = father.rfind("-")
         father_num = int(father[dash+1:])
-        father_path = ("{}/gen_{}-{}.ka"
-                       .format(self.past_dir, generation-1, father_num))
+        if generation == 1:
+            father_path = ("{}/gen_{}-{}.ka"
+                           .format(self.past_dir, generation, father_num))
+        else:
+            father_path = ("{}/gen_{}-{}.ka"
+                           .format(self.past_dir, generation-1, father_num))
         father_file = open(father_path).readlines()
         son_file = open(son_path).readlines()
         father_start, father_end = self.find_binding_rules(father_file)
         son_start, son_end = self.find_binding_rules(son_file)
         n_lines_father = father_end - father_start
         added_lines = 0
-        for i in range(n_lines_father):
+        for i in range(n_lines_father+1):
             father_line = father_file[i + father_start]
             son_line = son_file[i + son_start + added_lines]
             if "// Unary binding rules." not in father_line:
@@ -251,35 +267,82 @@ class Ancestry:
         """ Make a list of the ancestors of a given list of model numbers. """
 
         past_files = self.get_files(self.past_dir)
-        self.parents_highlight = []
+        past_list = []
+        for f in past_files:
+            dash = f.rfind("-")
+            underscore = f.rfind("_")
+            f_gen = int(f[underscore+1:dash])
+            f_num = int(f[dash+1:])
+            past_list.append([f_gen, f_num])
+        self.parents_highlight = ["node_0_0"]
         for model_num in model_nums:
-            search_num = model_num
+            self_num = model_num
             for gen in range(self.last_gen, 0, -1):
-                # Search for target model in given generation.
+                # Search for the model itself in current generation.
                 model_found = False
-                for f in past_files:
-                    dash = f.rfind("-")
-                    underscore = f.rfind("_")
-                    f_gen = int(f[underscore+1:dash])
-                    f_num = int(f[dash+1:])
-                    if f_num == search_num and f_gen == gen:
-                        node_id = "node_{}_{}".format(gen, search_num)
+                for past_mod in past_list:
+                    if past_mod[0] == gen and past_mod[1] == self_num:
+                        node_id = "node_{}_{}".format(gen, self_num)
                         self.parents_highlight.append(node_id)
-                        model_path = "{}/{}.ka".format(self.past_dir, f)
                         model_found = True
                         break
+                # If the model itself is not found, search for its father.
                 if model_found == False:
-                    node_id = "node_{}_{}".format(gen, prev_num)
-                    self.parents_highlight.append(node_id)
-                # Find the model's father.
-                if search_num > 0:
-                    model_file = open(model_path, "r").readline()
-                    father = model_file.split()[2][:-3]
-                    father_dash = father.rfind("-")
-                    father_num = int(father[father_dash+1:])
-                    prev_num = search_num
-                    search_num = father_num
-                    
+                    # First, find the model itself in subsequent generation.
+                    for past_mod in past_list:
+                        if past_mod[0] == gen+1 and past_mod[1] == self_num:
+                            model_path = ("{}/gen_{}-{}.ka".format(
+                                          self.past_dir, gen+1, self_num))
+                            model_file = open(model_path, "r").readline()
+                            father = model_file.split()[2][:-3]
+                            father_dash = father.rfind("-")
+                            father_num = int(father[father_dash+1:])
+                            break
+                    # Then, search for the father in current generation.
+                    for past_mod in past_list:
+                        if past_mod[0] == gen and past_mod[1] == father_num:
+                            node_id = "node_{}_{}".format(gen, father_num)
+                            self.parents_highlight.append(node_id)
+                            self_num = father_num
+                            break
+
+
+    def center_alpha_models(self):
+        """ Reorder nodes to center models with most sons. """
+
+        self.centered_nodes = []
+        for gen in range(0, self.last_gen+1):
+            rank_nodes = self.nodes[gen]
+            tmp_list = []
+            for node in rank_nodes:
+                model = node[0]
+                dash = model.index("-")
+                model_num = model[dash+1:]
+                node_id = "node_{}_{}".format(gen, model_num)
+                try:
+                    sons_list = self.sons[node_id]
+                    n_sons = len(sons_list)
+                except:
+                    n_sons = 0
+                tmp_node = node.copy()
+                tmp_node.append(n_sons)
+                tmp_list.append(tmp_node)
+            sorted_list = sorted(tmp_list, key=lambda x: x[3], reverse=True)
+            centered_list = []
+            for i in range(0, len(sorted_list)):
+                if gen%2 == 0:
+                    if i%2 != 0:
+                        centered_list.append(sorted_list[i])
+                    else:
+                        centered_list.insert(0, sorted_list[i])
+                else:
+                    if i%2 != 0:
+                        centered_list.insert(0, sorted_list[i])
+                    else:
+                        centered_list.append(sorted_list[i])
+            self.centered_nodes.append(centered_list)
+
+
 
     def draw_ancestry(self):
         """ Output the ancestry in dot format using graphviz. """
@@ -287,7 +350,7 @@ class Ancestry:
         # Custom position of node if using neato (ignored if using dot).
         x_spacing = 1.5
         y_spacing = 3
-        y = len(self.nodes) * y_spacing
+        y = len(self.centered_nodes) * y_spacing
         # Node color range for fitness.
         num_colors = 8 # Limited by graphviz coloschemes
         colorschemes = "blues"
@@ -299,15 +362,16 @@ class Ancestry:
         pen_binwidth = self.max_diff / num_pen
         # Build graph.
         g = graphviz.Graph(comment="Model ancestry")
-        for gen in range(1, len(self.nodes)+1):
+        for gen in range(0, len(self.centered_nodes)):
         #for gen in range(0, 150):
             x = 0
-            generation_nodes = self.nodes[gen-1]
+            generation_nodes = self.centered_nodes[gen]
             for node in generation_nodes:
                 dash = node[0].index("-")
                 node_num = node[0][dash+1:]
                 node_id = "node_{}_{}".format(gen, node_num)
-                fitness = node[1]
+                nrules = node[1]
+                fitness = node[2]
                 if fitness == self.min_fitness:
                     colorbin = 1
                 else:
@@ -315,41 +379,48 @@ class Ancestry:
                     colorbin = math.ceil( rel_fit / binwidth )
                 colornum = "{}".format(colorbin)
                 position = "{},{}!".format(x, y)
-                if gen > 1:
+                if gen > 0:
                     if self.mutations[node_id] != "Clone":
-                        clickmsg =  ("\nThis is model {} at generation {}.\n\n"
+                        clickmsg =  ("\nThis is model {} at generation {}\n"
                                      .format(node[0], gen))
+                        clickmsg += ("Number of rules = {}\n".format(nrules))
                         fitness_diff = self.fitness_diffs[node_id]
                         father = self.fathers[node_id][0]
                         if fitness_diff >= 0:
                             sign = "+"
                         else:
                             sign = ""
-                        clickmsg +=  "Fitness = {:.3f}\n\n".format(fitness)
-                        clickmsg +=  ("Difference with father {} = {}{:.3f}.\n\n\n"
-                                      .format(father, sign, fitness_diff))
-                        clickmsg += ("Mutation from father ({}) :\n\n"
-                                     .format(self.mutations[node_id][0]))
+                        clickmsg +=  ("Fitness = {:.3f}  ({}{:.3f})\n\n"
+                                      .format(fitness, sign, fitness_diff))
+                        clickmsg +=  ("Mutation compared to previous "
+                                      "model {} :\n\n".format(father))
+                        #clickmsg += ("({})\n"
+                        #             .format(self.mutations[node_id][0]))
                         clickmsg += ("{}".format(self.mutations[node_id][1]))
                     else:
                         clickmsg = ("\nClone of model {} at generation {}.\n\n"
                                     .format(node[0], gen))
                         clickmsg += "Fitness = {}".format(fitness)
                 else:
-                    clickmsg = ("\nStarting model {} at generation 1"
+                    clickmsg = ("\nStarting model {} ."
                                 .format(node[0]))
                 if node_id in self.parents_highlight:
-                    pensize = "3"
+                    pensize = "2"
+                    bordercolor = "#CD5C5C"
+                    nodeshape = "doublecircle"
                 else:
                     pensize = "1"
-                g.node(node_id, node_num, shape="circle", style="filled",
+                    bordercolor = "#000000"
+                    nodeshape = "circle"
+                g.node(node_id, node_num, shape=nodeshape, style="filled",
                        colorscheme=palette, fillcolor=colornum, pos=position,
-                       URL=clickmsg, penwidth=pensize)
+                       URL=clickmsg, penwidth=pensize, fixedsize="true",
+                       width="0.6", color=bordercolor)
                 x += x_spacing
             y += -y_spacing
-        for gen in range(2, len(self.edges)+2):
+        for gen in range(1, len(self.edges)+1):
         #for gen in range(1, 150):
-            generation_edges = self.edges[gen-2]
+            generation_edges = self.edges[gen-1]
             for edge in generation_edges:
                 dash1 = edge[0].index("-")
                 node1_num = edge[0][dash+1:]
@@ -377,194 +448,194 @@ class Ancestry:
         outfile.close()
         
 
-class RuleAncestry:
-    """
-    Compute ancestral mutation events of a given rule
-    from a given Kappa model.
-    """
-
-    def __init__(self, kappa_path, rule_id, past_dir, ance_dir):
-        """ Initialize RuleAncestry class. """
-
-        self.kappa_path = kappa_path
-        self.rule_id = rule_id
-        self.past_dir = past_dir
-        self.ance_dir = ance_dir
-        self.kappa_model = open(self.kappa_path, "r").readlines()
-        # Run class methods.
-        self.check_rule()
-        self.copy_target_file()
-        self.create_outfile()
-        self.get_past_models()
-        # Main loop.
-        self.track_ancestors()
-
-
-    # ------------- Initialize Section ---------------
-
-    def check_rule(self):
-        """ Search for rule_id in the model_file. """
-
-        self.find_binding_rules(self.kappa_model)
-        rule_found = False
-        for i in range(self.bind_start, self.bind_end+1):
-            line_str = self.kappa_model[i][1:]
-            quote = line_str.index("'")
-            rule_name = line_str[:quote]
-            if rule_name == self.rule_id:
-                self.rule_line = i
-                rule_found = True
-                break
-        if rule_found == False:
-            raise Exception("Rule {} not found in file {}"
-                            .format(self.rule_id, self.kappa_path))
-
-
-    def find_binding_rules(self, model_file):
-        """ Read input Kappa file and find the range of the binding rules. """
-
-        self.bind_start = 0
-        self.bind_end = 0
-        for i in range(len(model_file)):
-            line = model_file[i]
-            if "// Binary binding rules." in line:
-                self.bind_start = i + 1
-            if "// Unary binding rules." in line:
-                self.bind_end = i - 1
-
-
-    def copy_target_file(self):
-        """ Copy the model_file to ance_dir. """
-
-        if "/" in self.kappa_path:
-            slash = self.kappa_path.rfind("/")
-            self.kappa_file = self.kappa_path[slash+1:]
-        else:
-            self.kappa_file = self.kappa_path
-        to_path = "{}/{}".format(self.ance_dir, self.kappa_file)
-        shutil.copyfile(self.kappa_path, to_path)
-
-
-    def create_outfile(self):
-        """ Create file where to write ancestry results. """ 
-
-        output_path = "{}/{}.txt".format(self.ance_dir, self.kappa_file[:-3])
-        self.output_file = open(output_path, "w")
-
-
-    def get_past_models(self):
-        """ Get the list of all past generation models. """
-
-        file_list = os.listdir(self.past_dir)
-        self.past_list = []
-        for f in file_list:
-            dash = f.index("-")
-            generation = int(f[4:dash])
-            model_id = int(f[dash+1:-3])
-            self.past_list.append([generation, model_id])
-
-    # ------------- Initialize Section End ---------------
-
-
-    def track_ancestors(self):
-        """ Track mutations in the past of given rule from given model. """
-
-        root_reached = False
-        current_file = self.kappa_path
-        current_rule = self.rule_id
-        self.out_str = "{}\n".format(self.kappa_file)
-        while root_reached == False:
-            current_model = open(current_file, "r").readlines()
-            current_rule, current_line = self.find_target_rule(current_rule,
-                                                               current_model)
-            next_file, father_id = self.find_father(current_model)
-            next_model = open(next_file, "r").readlines()
-            next_rule, next_line = self.find_target_rule(current_rule,
-                                                         next_model)
-            if next_rule != current_rule: # A mutation was found.        
-                self.out_str += "|\n"
-                slash = current_file.rfind("/")
-                self.out_str += "{:20} ".format(current_file[slash+1:])
-                self.out_str += "{}".format(current_model[current_line])
-                slash = next_file.rfind("/")
-                self.out_str += "{:20} ".format(next_file[slash+1:])
-                self.out_str += "{}".format(next_model[next_line])
-            else:
-                pass
-            current_file = next_file
-            if father_id == 0:
-                root_reached = True
-        self.output_file.write("{}".format(self.out_str))
-
-
-    def find_father(self, model_file):
-        """
-        Get the father model from directory past_dir. If the model was
-        preserved for many generations, take the file from the first
-        generation where it appeared.
-        """
-
-        tokens = model_file[0].split()
-        father = tokens[-1]
-        if "-" in father:
-            dash = father.index("-")
-            father_id = int(father[dash+1:-3])
-        else:
-            father_id = 0
-        father_list = []
-        for past_model in self.past_list:
-            if past_model[1] == father_id:
-                father_list.append(past_model)
-        sorted_list = sorted(father_list, key=lambda x: x[0])
-        father_gen = sorted_list[0][0]
-        father_file = "gen_{}-{}.ka".format(father_gen, father_id)
-        father_path = "{}/{}".format(self.past_dir, father_file)
-
-        return father_path, father_id
-
-
-    def find_target_rule(self, rule, model_file):
-        """
-        Find target rule in model file. If the rule is not found, it has been
-        mutated and its precedent form should be found instead.
-        """
-
-        self.find_binding_rules(model_file)
-        rule_found = False
-        for i in range(self.bind_start, self.bind_end+1):
-            line_str = model_file[i][1:]
-            quote = line_str.index("'")
-            rule_name = line_str[:quote]
-            if rule_name == rule:
-                rule_line = i
-                rule_found = True
-                break
-        if rule_found == False:
-            prev_rule = rule[:-1]
-            mutation_found = True
-            for i in range(self.bind_start, self.bind_end+1):
-                line_str = model_file[i][1:]
-                quote = line_str.index("'")
-                rule_name = line_str[:quote]
-                if rule_name == prev_rule:
-                    rule_line = i
-                    mutation_found = True
-                    break
-            if mutation_found == False:
-                raise Exception("Could not find rule {} or {}."
-                               .format(rule, prev_rule))
-            else:
-                rule = prev_rule
-
-        return rule, rule_line
-
-
-class ModelAncestry:
-    """ Compute ancestral mutation events of a given Kappa model. """
-
-    def __init__(self, model_file, past_dir):
-        """ Initialize RuleAncestry class. """
-
-        self.model_file = model_file
-        self.past_dir = past_dir
+#class RuleAncestry:
+#    """
+#    Compute ancestral mutation events of a given rule
+#    from a given Kappa model.
+#    """
+#
+#    def __init__(self, kappa_path, rule_id, past_dir, ance_dir):
+#        """ Initialize RuleAncestry class. """
+#
+#        self.kappa_path = kappa_path
+#        self.rule_id = rule_id
+#        self.past_dir = past_dir
+#        self.ance_dir = ance_dir
+#        self.kappa_model = open(self.kappa_path, "r").readlines()
+#        # Run class methods.
+#        self.check_rule()
+#        self.copy_target_file()
+#        self.create_outfile()
+#        self.get_past_models()
+#        # Main loop.
+#        self.track_ancestors()
+#
+#
+#    # ------------- Initialize Section ---------------
+#
+#    def check_rule(self):
+#        """ Search for rule_id in the model_file. """
+#
+#        self.find_binding_rules(self.kappa_model)
+#        rule_found = False
+#        for i in range(self.bind_start, self.bind_end+1):
+#            line_str = self.kappa_model[i][1:]
+#            quote = line_str.index("'")
+#            rule_name = line_str[:quote]
+#            if rule_name == self.rule_id:
+#                self.rule_line = i
+#                rule_found = True
+#                break
+#        if rule_found == False:
+#            raise Exception("Rule {} not found in file {}"
+#                            .format(self.rule_id, self.kappa_path))
+#
+#
+#    def find_binding_rules(self, model_file):
+#        """ Read input Kappa file and find the range of the binding rules. """
+#
+#        self.bind_start = 0
+#        self.bind_end = 0
+#        for i in range(len(model_file)):
+#            line = model_file[i]
+#            if "// Binary binding rules." in line:
+#                self.bind_start = i + 1
+#            if "// Unary binding rules." in line:
+#                self.bind_end = i - 1
+#
+#
+#    def copy_target_file(self):
+#        """ Copy the model_file to ance_dir. """
+#
+#        if "/" in self.kappa_path:
+#            slash = self.kappa_path.rfind("/")
+#            self.kappa_file = self.kappa_path[slash+1:]
+#        else:
+#            self.kappa_file = self.kappa_path
+#        to_path = "{}/{}".format(self.ance_dir, self.kappa_file)
+#        shutil.copyfile(self.kappa_path, to_path)
+#
+#
+#    def create_outfile(self):
+#        """ Create file where to write ancestry results. """ 
+#
+#        output_path = "{}/{}.txt".format(self.ance_dir, self.kappa_file[:-3])
+#        self.output_file = open(output_path, "w")
+#
+#
+#    def get_past_models(self):
+#        """ Get the list of all past generation models. """
+#
+#        file_list = os.listdir(self.past_dir)
+#        self.past_list = []
+#        for f in file_list:
+#            dash = f.index("-")
+#            generation = int(f[4:dash])
+#            model_id = int(f[dash+1:-3])
+#            self.past_list.append([generation, model_id])
+#
+#    # ------------- Initialize Section End ---------------
+#
+#
+#    def track_ancestors(self):
+#        """ Track mutations in the past of given rule from given model. """
+#
+#        root_reached = False
+#        current_file = self.kappa_path
+#        current_rule = self.rule_id
+#        self.out_str = "{}\n".format(self.kappa_file)
+#        while root_reached == False:
+#            current_model = open(current_file, "r").readlines()
+#            current_rule, current_line = self.find_target_rule(current_rule,
+#                                                               current_model)
+#            next_file, father_id = self.find_father(current_model)
+#            next_model = open(next_file, "r").readlines()
+#            next_rule, next_line = self.find_target_rule(current_rule,
+#                                                         next_model)
+#            if next_rule != current_rule: # A mutation was found.        
+#                self.out_str += "|\n"
+#                slash = current_file.rfind("/")
+#                self.out_str += "{:20} ".format(current_file[slash+1:])
+#                self.out_str += "{}".format(current_model[current_line])
+#                slash = next_file.rfind("/")
+#                self.out_str += "{:20} ".format(next_file[slash+1:])
+#                self.out_str += "{}".format(next_model[next_line])
+#            else:
+#                pass
+#            current_file = next_file
+#            if father_id == 0:
+#                root_reached = True
+#        self.output_file.write("{}".format(self.out_str))
+#
+#
+#    def find_father(self, model_file):
+#        """
+#        Get the father model from directory past_dir. If the model was
+#        preserved for many generations, take the file from the first
+#        generation where it appeared.
+#        """
+#
+#        tokens = model_file[0].split()
+#        father = tokens[-1]
+#        if "-" in father:
+#            dash = father.index("-")
+#            father_id = int(father[dash+1:-3])
+#        else:
+#            father_id = 0
+#        father_list = []
+#        for past_model in self.past_list:
+#            if past_model[1] == father_id:
+#                father_list.append(past_model)
+#        sorted_list = sorted(father_list, key=lambda x: x[0])
+#        father_gen = sorted_list[0][0]
+#        father_file = "gen_{}-{}.ka".format(father_gen, father_id)
+#        father_path = "{}/{}".format(self.past_dir, father_file)
+#
+#        return father_path, father_id
+#
+#
+#    def find_target_rule(self, rule, model_file):
+#        """
+#        Find target rule in model file. If the rule is not found, it has been
+#        mutated and its precedent form should be found instead.
+#        """
+#
+#        self.find_binding_rules(model_file)
+#        rule_found = False
+#        for i in range(self.bind_start, self.bind_end+1):
+#            line_str = model_file[i][1:]
+#            quote = line_str.index("'")
+#            rule_name = line_str[:quote]
+#            if rule_name == rule:
+#                rule_line = i
+#                rule_found = True
+#                break
+#        if rule_found == False:
+#            prev_rule = rule[:-1]
+#            mutation_found = True
+#            for i in range(self.bind_start, self.bind_end+1):
+#                line_str = model_file[i][1:]
+#                quote = line_str.index("'")
+#                rule_name = line_str[:quote]
+#                if rule_name == prev_rule:
+#                    rule_line = i
+#                    mutation_found = True
+#                    break
+#            if mutation_found == False:
+#                raise Exception("Could not find rule {} or {}."
+#                               .format(rule, prev_rule))
+#            else:
+#                rule = prev_rule
+#
+#        return rule, rule_line
+#
+#
+#class ModelAncestry:
+#    """ Compute ancestral mutation events of a given Kappa model. """
+#
+#    def __init__(self, model_file, past_dir):
+#        """ Initialize RuleAncestry class. """
+#
+#        self.model_file = model_file
+#        self.past_dir = past_dir
 
