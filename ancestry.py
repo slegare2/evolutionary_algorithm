@@ -361,9 +361,10 @@ class Ancestry:
                 if node1_num == node2_num:
                     g.attr("edge", style="dashed", color="grey", penwidth="3")
                 else:
-                    penbin = math.ceil( fit_diff / pen_binwidth )
-                    if penbin < 1:
+                    if fit_diff <= 0:
                         penbin = 1
+                    else:
+                        penbin = math.ceil( fit_diff / pen_binwidth )
                     pensize = "{}".format(penbin)
                     if self.mutations[node2_id][0] == "refinement":
                         edge_color = "green"

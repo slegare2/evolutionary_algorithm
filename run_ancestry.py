@@ -2,11 +2,11 @@
 
 import sys
 sys.path.append('/home/slegare/IRIF/storydepth/evolutionary_algorithm')
-from ancestry import RuleAncestry
+from ancestry import Ancestry
 
+fit_dir  = "fitness"           # Directory where to read models and fitness.
 past_dir = "past_generations"  # Directory where to read past models.
-ance_dir = "ancestry"          # Directory where to write ancestry results
+ance_dir = "ancestry"          # Directory where to write ancestry results.
 
-ancestry = RuleAncestry("best/best_100-1799.ka", "A binds B 2",
-                         past_dir, ance_dir)
+ancestry = Ancestry(fit_dir, past_dir, ance_dir)
 

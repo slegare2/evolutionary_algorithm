@@ -494,36 +494,70 @@ class Evolutionary:
             input_path = "{}/{}.ka".format(self.pop_dir, model)
             mutate_val = random.uniform(0, 1)
             if mutate_val <= self.mutation_prob: # If true, mutate child.
-                refine_val = random.uniform(0, 1)
-                dash = model.rfind("-")
-                prefix = model[:dash+1]
-                if refine_val <= self.refine_prob: # Refine a Rule.
-                    mutated_model_tmp = MutateRule(input_path,
-                                                   self.matrix_file,
-                                                   self.max_bonds)
-                    tmp_out = "{}/{}tmp.ka".format(self.next_dir, prefix,
-                                                   self.model_num)
-                    output_content = open(tmp_out, "w")
-                    output_content.write(mutated_model_tmp.new_file)
-                    output_content.close() 
-                    mut_lines = mutated_model_tmp.mutated_lines
-                    mutated_model = MutateRate(tmp_out, self.binary_rates,
-                                               self.unary_rates,
-                                               select_lines=mut_lines,
-                                               unchanged_father=True)
-                else: # Change a rate.
-                    mutated_model = MutateRate(input_path, self.binary_rates,
-                                               self.unary_rates)
-                # Write mutated model to new file.
                 self.model_num += 1
-                output_path = "{}/{}{}.ka".format(self.next_dir, prefix,
-                                                  self.model_num)
-                output_content = open(output_path, "w")
-                output_content.write(mutated_model.new_file)
-                output_content.close()
-                # Clean temporary file.
-                if refine_val <= self.refine_prob:
-                    os.remove(tmp_out)
+                is_different = False
+                found_identical = False
+                while is_different == False:
+                    refine_val = random.uniform(0, 1)
+                    dash = model.rfind("-")
+                    prefix = model[:dash+1]
+                    if refine_val <= self.refine_prob: # Refine a Rule.
+                        mutated_model_tmp = MutateRule(input_path,
+                                                       self.matrix_file,
+                                                       self.max_bonds)
+                        tmp_out = "{}/{}tmp.ka".format(self.next_dir, prefix,
+                                                       self.model_num)
+                        output_content = open(tmp_out, "w")
+                        output_content.write(mutated_model_tmp.new_file)
+                        output_content.close()
+                        mut_lines = mutated_model_tmp.mutated_lines
+                        mutated_model = MutateRate(tmp_out, self.binary_rates,
+                                                   self.unary_rates,
+                                                   select_lines=mut_lines,
+                                                   unchanged_father=True)
+                    else: # Change a rate.
+                        mutated_model = MutateRate(input_path, self.binary_rates,
+                                                   self.unary_rates)
+                    # Write mutated model to new file.
+                    output_path = "{}/{}{}.ka".format(self.next_dir, prefix,
+                                                      self.model_num)
+                    output_content = open(output_path, "w")
+                    output_content.write(mutated_model.new_file)
+                    output_content.close()
+                    # Clean temporary file.
+                    if refine_val <= self.refine_prob:
+                        os.remove(tmp_out)
+                    # Check if the new model is not identical to one that
+                    # already exists in next_dir.
+                    created_files = self.get_files(self.next_dir)
+                    created_files.remove("{}{}".format(prefix, self.model_num))
+                    for created_file in created_files:
+                        is_different = True
+                        previous_path = "{}/{}.ka".format(self.next_dir, created_file)
+                        previous_content = open(previous_path, "r").readlines()
+                        output_content = open(output_path, "r").readlines()
+                        if len(previous_content) == len(output_content):
+                            is_different = False
+                            # I start the following loop at 1 to skip the
+                            # first line which contains the father.
+                            for i in range(1, len(output_content)):
+                                previous_line = previous_content[i]
+                                output_line = output_content[i]
+                                if previous_line != output_line:
+                                    is_different = True
+                                    break
+                        if is_different == False:
+                            #print("File {}{}.ka is identical to {}.ka. Making a new model."
+                            #      .format( prefix, self.model_num, created_file))
+                            found_identical = True
+                            break
+                    #if is_different == True:
+                    #    if found_identical == True:
+                    #        now = " now"
+                    #    else:
+                    #        now = ""
+                    #    print("File {}{}.ka is{} different from all previous models."
+                    #          .format(prefix, self.model_num, now))
             else: # If no mutation, just directly copy into next generation.
                 output_path = "{}/{}.ka".format(self.next_dir, model)
                 shutil.copyfile(input_path, output_path)
