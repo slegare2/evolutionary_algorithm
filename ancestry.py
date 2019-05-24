@@ -357,7 +357,7 @@ class Ancestry:
         palette = "{}{}".format(colorschemes, num_colors)
         fitness_range = self.max_fitness - self.min_fitness
         binwidth = fitness_range / num_colors
-        # Edge width range foir fitness difference between models.
+        # Edge width range for fitness difference between models.
         num_pen = 8
         pen_binwidth = self.max_diff / num_pen
         # Build graph.

@@ -47,6 +47,7 @@ fit_dir  = "fitness"           # Directory where to write computed fitness.
 best_dir = "best"              # Directory where to keep the best individual
                                # of each generation
 story_dir = "stories"          # Directory where to write stories.
+din_dir = "din"                # Directory where to write flux maps.
 
 # Interaction matrix file.
 matrix_file = "../inter_matrix_full6.txt"
@@ -61,8 +62,9 @@ evolution = Evolutionary(num_gens, sim_time, replicates, out_period,
                          mutation_prob, refine_prob, max_bonds,
                          binary_rates, unary_rates,
                          start_dir, pop_dir, next_dir, past_dir, out_dir,
-                         fit_dir, best_dir, story_dir, matrix_file)
+                         fit_dir, best_dir, story_dir, din_dir, matrix_file)
 evolution.evolve()
 #evolution.compute_stories([0, 20, 100])
+#evolution.compute_din(0.3)
 
 # ------------------------------------------------

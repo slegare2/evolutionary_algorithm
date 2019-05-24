@@ -7,7 +7,10 @@ import time
 import shutil
 import random
 import string
+import math
+import json
 import kappy
+import graphviz
 from mutaterule import MutateRule, MutateRate
 
 
@@ -20,7 +23,7 @@ class Evolutionary:
                  mutation_prob, refine_prob, max_bonds,
                  binary_rates, unary_rates,
                  start_dir, pop_dir, next_dir, past_dir, out_dir,
-                 fit_dir, best_dir, story_dir, matrix_file):
+                 fit_dir, best_dir, story_dir, din_dir, matrix_file):
         """ Initialize Evolutionary class. """
 
         self.num_gens = num_gens
@@ -44,6 +47,7 @@ class Evolutionary:
         self.fit_dir = fit_dir
         self.best_dir = best_dir
         self.story_dir = story_dir
+        self.din_dir = din_dir
         self.matrix_file = matrix_file
         self.letters = list(string.ascii_lowercase)
         # Some checks.
@@ -762,9 +766,10 @@ class Evolutionary:
             input_path = "{}/{}/{}.ka".format(self.story_dir, model, model)
             output_path = "{}/{}/{}.dat".format(self.story_dir, model, model)
             trace_path = "{}/{}/{}.json".format(self.story_dir, model, model)
-            command_line = ("KaSim -mode batch --no-log --no-log -u t -p 0.1 "
-                            "-l 1 -i {} -o {} -trace {}"
-                            .format(input_path, output_path, trace_path))
+            command_line = ("KaSim -mode batch --no-log --no-log -u t -p {} "
+                            "-l {} -i {} -o {} -trace {}"
+                            .format(self.out_period, self.sim_time, input_path,
+                                    output_path, trace_path))
             os.system(command_line)
 
 
@@ -911,3 +916,212 @@ class Evolutionary:
 
     # +++++++++++ Story Section End ++++++++++++
 
+    # """"""""""""" DIN section """"""""""""""""
+
+    def compute_din(self, flux_time_frac):
+        """
+        Compute and draw flux maps of the best model of each generation.
+        Unbinding and unimolecular rules are not considered at the moment.
+        """
+
+        self.flux_time_frac = flux_time_frac
+        self.get_best_models()
+        #self.create_flux_maps()
+        self.draw_flux_maps()
+
+
+    def get_best_models(self):
+        """ Get the best models to simulate. """
+
+        best_files = self.get_files(self.best_dir)
+        self.best_dict = {}
+        for f in best_files:
+            dash = f.rfind("-")
+            underscore = f.rfind("_")
+            model_num = f[dash+1:]
+            gen_num = f[underscore+1:dash]
+            if model_num in self.best_dict.keys():
+                self.best_dict[model_num].append(gen_num)
+            else:
+                self.best_dict[model_num] = [gen_num]
+
+
+    def create_flux_maps(self):
+        """
+        Compute de flux maps. The fluxes are computed on the last
+        flux_time_frac portion of the simulations.
+        """
+
+        # Copy files to din_dir and add %mod DIN lines.
+        for model_num in self.best_dict.keys():
+            gen_num = self.best_dict[model_num][0]
+            model = "best_{}-{}".format(gen_num, model_num)
+            input_path = "{}/{}.ka".format(self.best_dir, model)
+            output_path = "{}/{}.ka".format(self.din_dir, model)
+            shutil.copyfile(input_path, output_path)
+            output_file = open(output_path, "a")
+            flux_path = "{}/flux_{}-{}.json".format(self.din_dir,
+                                                    gen_num, model_num)
+            start_time = self.sim_time * (1-self.flux_time_frac)
+            if start_time == 0.0:
+                start_time = 0.001
+            output_file.write('%mod: alarm {} do $DIN "{}" [true];\n'
+                              .format(start_time, flux_path))
+            output_file.write('%mod: alarm {} do $DIN "{}" [false];\n'
+                              .format(self.sim_time, flux_path))
+            output_file.close()
+        # Run KaSim with new %mod lines to produce flux maps.
+        for model_num in self.best_dict.keys():
+            gen_num = self.best_dict[model_num][0]
+            model = "best_{}-{}".format(gen_num, model_num)
+            input_path = "{}/{}.ka".format(self.din_dir, model)
+            output_path = "{}/{}.dat".format(self.din_dir, model)
+            command_line = ("KaSim -mode batch --no-log --no-log -u t -p {} "
+                            "-l {} -i {} -o {}"
+                            .format(self.out_period, self.sim_time,
+                                    input_path, output_path))
+            os.system(command_line)
+
+
+    def draw_flux_maps(self):
+        """ Draw the flux maps using graphviz. """
+
+        for model_num in self.best_dict.keys():
+            # Open flux file.
+            #model_num = "867"
+            gen_num = self.best_dict[model_num][0]
+            flux_path = "{}/flux_{}-{}.json".format(self.din_dir,
+                                                    gen_num, model_num)
+            flux_file = open(flux_path)
+            flux_data = json.load(flux_file)
+            din_rules = flux_data["din_rules"]
+            din_hits = flux_data["din_hits"]
+            din_fluxes = flux_data["din_fluxs"]
+            # Make a list of base rules.
+            base_rules = []
+            for rule in din_rules:
+                if "Interventions" not in rule and "unbinds" not in rule:
+                    space = rule.rfind(" ")
+                    base_rule = rule[:space]
+                    if "uni" not in base_rule:
+                        if base_rule not in base_rules:
+                            base_rules.append(base_rule)
+            # Get rule indexes.
+            rule_indexes = {}
+            for base_rule in base_rules:
+                rule_indexes[base_rule] = []
+                for i in range(len(din_rules)):
+                    din_rule = din_rules[i]
+                    if "uni" not in din_rule:
+                        if base_rule in din_rule:
+                            rule_indexes[base_rule].append(i)
+            # Get merged hits.
+            rule_hits = {}
+            hits_list = []
+            for base_rule in rule_indexes.keys():
+                indexes = rule_indexes[base_rule]
+                summ = 0
+                for i in indexes:
+                    hits = din_hits[i]
+                    summ += hits
+                #if summ != 0:
+                rule_hits[base_rule] = summ
+                hits_list.append(summ)
+            if len(hits_list) > 0:
+                max_hits = max(hits_list)
+                min_hits = min(hits_list)
+            else:
+                max_hits, min_hits = 0, 0
+            # Get merged fluxes.
+            rule_fluxes = {}
+            fluxes_list = []
+            for rule1 in base_rules:
+                for rule2 in base_rules:
+                    edge_name = '"{}" -> "{}"'.format(rule1, rule2)
+                    summ = 0
+                    for i in rule_indexes[rule1]:
+                        for j in rule_indexes[rule2]:
+                            flux = din_fluxes[i][j]
+                            summ += flux
+                    if summ != 0:
+                        rule_fluxes[edge_name] = summ
+                        fluxes_list.append(abs(summ))
+            if len(fluxes_list) > 0:
+                max_flux = max(fluxes_list)
+            else:
+                max_flux = 0
+
+            # Node color range for number of hits.
+            num_colors = 7 # Limited by graphviz coloschemes
+            palette = "blues8"
+            hits_range = max_hits - min_hits
+            binwidth = hits_range / num_colors
+            # Edge width range for amplitude of flux.
+            num_pen = 8
+            pen_binwidth = max_flux / num_pen
+            # Produce layout.
+            radius = 5
+            delta = 2*math.pi/len(rule_hits.keys())
+            pos_list = []
+            for i in range(len(rule_hits.keys())):
+                angle = i*delta
+                if angle < math.pi:
+                    x_sign = 1
+                else:
+                    y_sign = -1
+                if angle < math.pi/2 and angle > 3*math.pi/2:
+                    y_sign = 1
+                else:
+                    y_sign = -1
+                x = math.sin(angle)*radius*x_sign
+                y = math.cos(angle)*radius*y_sign
+                position = "{},{}!".format(x, y)
+                pos_list.append(position)
+
+            # Create graph.
+            g = graphviz.Digraph(comment="Flux map")
+            #g.attr("graph", splines="curved")
+            pos_ind = 0
+            for rule in rule_hits.keys():
+                num_hits = rule_hits[rule]
+                if num_hits == min_hits:
+                    colorbin = 1
+                else:
+                    rel_hits = num_hits - min_hits
+                    colorbin = math.ceil( rel_hits / binwidth )
+                colornum = "{}".format(colorbin)
+                g.node(rule, rule, shape="box", style="filled",
+                           colorscheme=palette, fillcolor=colornum, 
+                           pos=pos_list[pos_ind], fixedsize="true", width="1")
+                pos_ind += 1
+            for edge in rule_fluxes.keys():
+                flux = rule_fluxes[edge]
+                flux_str = "{:.4f}".format(flux)
+                arrow = edge.index("->")
+                source = edge[1:arrow-2]
+                target = edge[arrow+4:-1]
+                penbin = math.ceil( abs(flux) / pen_binwidth )
+                pensize = "{}".format(penbin)
+                if flux > 0:
+                    edge_color = "green"
+                    arrow_shape = "normal"
+                else:
+                    edge_color = "red"
+                    arrow_shape = "tee"
+                g.edge(source, target, color=edge_color, arrowhead=arrow_shape,
+                       penwidth=pensize, label=flux_str)
+
+            # Write graph to dot file.
+            output_path = "{}/flux_{}-{}.dot".format(self.din_dir,
+                                                     gen_num, model_num)
+            output_file = open(output_path, "w")
+            output_file.write(g.source)
+            output_file.close()
+            # Make a png from the dot file.
+            png_path = "{}.png".format(output_path[:-4])
+            command_line = ("/usr/bin/neato -Tpng {} > {}".format(output_path,
+                                                                png_path))
+            os.system(command_line)
+
+
+    # """""""""""" DIN section End """""""""""""
