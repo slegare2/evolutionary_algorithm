@@ -112,7 +112,7 @@ class Ancestry:
         """ Get the edges (the mutations) of a given generation. """
 
         if generation == 1:
-            input_file = ["", "", "abc-0 0.0"]
+            input_file = ["", "", "house_nosym-0 0.0"]
         else:
             input_path = ("{}/fitness_gen-{}.txt"
                           .format(self.fit_dir, generation-1))

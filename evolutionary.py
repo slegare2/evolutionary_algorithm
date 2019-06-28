@@ -926,7 +926,7 @@ class Evolutionary:
 
         self.flux_time_frac = flux_time_frac
         self.get_best_models()
-        #self.create_flux_maps()
+        self.create_flux_maps()
         self.draw_flux_maps()
 
 
@@ -997,6 +997,24 @@ class Evolutionary:
             din_rules = flux_data["din_rules"]
             din_hits = flux_data["din_hits"]
             din_fluxes = flux_data["din_fluxs"]
+
+            values_path = "{}/values_{}-{}.dat".format(self.din_dir,
+                                                    gen_num, model_num)
+            values_file = open(values_path, "w")
+            values_file.write("                 Source\nTarget          ")
+            for i in range(24):
+                values_file.write("{:11}|".format(din_rules[i]))
+            values_file.write("\n\n")
+            for i in range(len(din_fluxes)):
+                values_file.write("{:16} ".format(din_rules[i]))
+                for j in range(24):
+                    value = float(din_fluxes[j][i])
+                    if value == 0.0:
+                        values_file.write("     0.0    ")
+                    else:
+                        values_file.write("{:11.6f} ".format(float(din_fluxes[j][i])))
+                values_file.write("\n")
+          
             # Make a list of base rules.
             base_rules = []
             for rule in din_rules:

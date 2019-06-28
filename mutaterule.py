@@ -886,7 +886,7 @@ class MutateRate:
         The new value will be different from the old one.
         """
 
-        if self.all_closures == True:     # If all binary rules became ring
+        if self.all_closures == True:     # If all binary rules become ring
             self.chosen_arity = "binary"  # closures, all unary are commented.
         else:
             self.chosen_arity = random.choice(self.rule_arity)
@@ -903,6 +903,11 @@ class MutateRate:
             random_rate = random.choice(self.available_rates)
             new_rate = "{}".format(random_rate)
             self.rate_list[self.rule_index] = new_rate
+            ## If the binary rate is set to zero by the mutation, also set
+            ## the unary to zero (We reverted this, unary can now be non zero
+            ## even if binary is zero).
+            #if random_rate == 0.0:
+            #    self.unary_rate_list[self.rule_index] = "0"
         elif self.chosen_arity == "unary":
             # Cannot select a commented unary rule.
             rule_found = False
@@ -916,30 +921,31 @@ class MutateRate:
             self.old_rate = float(self.unary_rate_list[self.rule_index])
             self.available_rates.remove(self.old_rate)
             random_rate = random.choice(self.available_rates)
-            # We do not allow non zero unary rates if the
-            # corresponding binary rate is 0.
-            binary_rate = float(self.rate_list[self.rule_index])
-            if binary_rate == 0.0 and random_rate != 0.0:
-                # Change an other binary rate instead.
-                self.chosen_arity = "binary"
-                # Cannot select a ring closure at that point.
-                rule_found = False
-                while rule_found == False:
-                    self.select_rule()
-                    self.rule_index = self.random_line - self.bind_start
-                    name_str = self.name_list[self.rule_index]
-                    if "cls" not in name_str:
-                        rule_found = True
-                self.fresh_binary_rates()
-                self.rule_index = self.random_line - self.bind_start
-                self.old_rate = float(self.rate_list[self.rule_index])
-                self.available_rates.remove(self.old_rate)
-                random_rate = random.choice(self.available_rates)
-                new_rate = "{}".format(random_rate)
-                self.rate_list[self.rule_index] = new_rate
-            else:
-                new_rate = "{}".format(random_rate)
-                self.unary_rate_list[self.rule_index] = new_rate
+            ## We do not allow non zero unary rates if the
+            ## corresponding binary rate is 0 (We reverted this, unary can
+            ## now be non zero even if binary is zero.
+            #binary_rate = float(self.rate_list[self.rule_index])
+            #if binary_rate == 0.0 and random_rate != 0.0:
+            #    # Change an other binary rate instead.
+            #    self.chosen_arity = "binary"
+            #    # Cannot select a ring closure at that point.
+            #    rule_found = False
+            #    while rule_found == False:
+            #        self.select_rule()
+            #        self.rule_index = self.random_line - self.bind_start
+            #        name_str = self.name_list[self.rule_index]
+            #        if "cls" not in name_str:
+            #            rule_found = True
+            #    self.fresh_binary_rates()
+            #    self.rule_index = self.random_line - self.bind_start
+            #    self.old_rate = float(self.rate_list[self.rule_index])
+            #    self.available_rates.remove(self.old_rate)
+            #    random_rate = random.choice(self.available_rates)
+            #    new_rate = "{}".format(random_rate)
+            #    self.rate_list[self.rule_index] = new_rate
+            #else:
+            new_rate = "{}".format(random_rate)
+            self.unary_rate_list[self.rule_index] = new_rate
 
 
     def change_selected(self):
