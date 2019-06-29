@@ -19,7 +19,7 @@ class Evolutionary:
 
     def __init__(self, num_gens, sim_time, replicates, out_period,
                  selection_type, elite_frac,
-                 penalty_weight, time_ave_frac,
+                 penalty_weight, time_ave_frac, score_operation,
                  mutation_prob, refine_prob, max_bonds,
                  binary_rates, unary_rates,
                  start_dir, pop_dir, next_dir, past_dir, out_dir,
@@ -34,6 +34,7 @@ class Evolutionary:
         self.elite_frac = elite_frac
         self.penalty_weight = penalty_weight
         self.time_ave_frac = time_ave_frac
+        self.score_operation = score_operation
         self.mutation_prob = mutation_prob
         self.refine_prob = refine_prob
         self.max_bonds = max_bonds
@@ -236,12 +237,27 @@ class Evolutionary:
         self.compute_time_averages()
         self.fitness = self.survivors_fit.copy()
         for model in self.new_model_list:
-            # Compute score.
-            score = 0
+            # Compute additive score.
+            add_score = 0
             for i in range(self.num_obs):
                 w = self.weights[i]
                 n = self.time_averages[model][i]
-                score += w*n
+                add_score += w*n
+            # Compute multiplicative score.
+            mult_score = 1
+            for i in range(self.num_obs):
+                w = self.weights[i]
+                n = self.time_averages[model][i]
+                mult_score *= w*n
+            if self.score_operation == "add":
+                score = add_score
+            elif self.score_operation == "mult":
+                score = mult_score
+            elif self.score_operation == "addmult":
+                score = add_score + mult_score
+            else:
+                raise Exception('score_operation should be either "add", '
+                                '"mult" or "addmult"')
             # Compute penalty.
             if self.penalty_weight != 0.0:
                 p = self.penalty_weight

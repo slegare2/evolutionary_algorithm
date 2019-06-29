@@ -22,6 +22,9 @@ elite_frac     = 0.1    # Fraction of the population considered as elite.
 penalty_weight = 0.2    # Weight of the fitness penalty for number of rules.
 time_ave_frac  = 0.1    # Final portion of time series used to compute
                         # observable averages.
+score_operation = "add" # Choose if fitness should be computed by adding
+                        # observable amounts, multiplying them, or both.
+                        # Possible values are add, mult, or addmult.
 
 # Mutation params.
 mutation_prob = 1     # Probability that a child is mutated. Problem right now if not 1: clones erase their father and population size decreases.
@@ -58,7 +61,7 @@ matrix_file = "../inter_matrix_full6.txt"
 
 evolution = Evolutionary(num_gens, sim_time, replicates, out_period,
                          selection_type, elite_frac,
-                         penalty_weight, time_ave_frac,
+                         penalty_weight, time_ave_frac, score_operation,
                          mutation_prob, refine_prob, max_bonds,
                          binary_rates, unary_rates,
                          start_dir, pop_dir, next_dir, past_dir, out_dir,
